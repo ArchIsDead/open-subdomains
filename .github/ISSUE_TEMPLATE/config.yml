@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help
+    url: https://github.com/HisokaLabs/open-subdomains/discussions/categories/q-a
+    about: Ask about claiming a subdomain, DNS records, or the rules.
+  - name: Report abuse
+    url: https://github.com/HisokaLabs/open-subdomains/discussions/categories/announcements
+    about: >-
+      Open a discussion under Announcements or email contact@hisoka.net
+      with the subject "abuse: <hostname>".
