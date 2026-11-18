@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-   <img alt="Domains" src="https://img.shields.io/github/directory-file-count/HisokaLabs/open-subdomains/domains?color=5c46eb&label=domains&style=for-the-badge">
-   <img alt="Open Issues" src="https://img.shields.io/github/issues-raw/HisokaLabs/open-subdomains?color=5c46eb&label=issues&style=for-the-badge">
-   <img alt="Open Pull Requests" src="https://img.shields.io/github/issues-pr-raw/HisokaLabs/open-subdomains?color=5c46eb&label=pull%20requests&style=for-the-badge">
+   <img alt="Domains" src="https://img.shields.io/github/directory-file-count/HisokaLabs/open-subdomains/domains?color=5c46eb&label=domains&style=for-the-badge&cacheSeconds=600">
+   <img alt="Open Issues" src="https://img.shields.io/github/issues-raw/HisokaLabs/open-subdomains?color=5c46eb&label=issues&style=for-the-badge&cacheSeconds=600">
+   <img alt="Open Pull Requests" src="https://img.shields.io/github/issues-pr-raw/HisokaLabs/open-subdomains?color=5c46eb&label=pull%20requests&style=for-the-badge&cacheSeconds=600">
    <br>
 </p>
 
