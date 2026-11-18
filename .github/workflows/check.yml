@@ -2,14 +2,23 @@ name: check
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - 'domains/**'
+      - 'registry/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'dnsconfig.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/check.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,7 +26,9 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate the registry
+    # The ruleset on main requires this exact context. Renaming the job without
+    # updating the ruleset leaves the branch permanently unmergeable.
+    name: Validate registry
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -28,25 +39,55 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-
-      # The policy comparison reads registry/*.json at the base commit, so the
-      # branch it compares against has to exist locally.
+      # The policy comparison reads registry/*.json at the base commit. That
+      # branch has to exist locally first.
       - if: github.event_name == 'pull_request'
         name: Fetch the base branch
         run: git fetch --no-tags origin "$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
 
-      - name: Validate domains/
+      # A deletion is listed separately: a shallow diff cannot tell a removed
+      # file from one that never existed.
+      - name: Gather pull request metadata
+        if: github.event_name == 'pull_request'
         env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_AUTHOR_ID: ${{ github.event.pull_request.user.id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "PR_AUTHOR=${{ github.event.pull_request.user.login }}"
+            echo "PR_AUTHOR_ID=${{ github.event.pull_request.user.id }}"
+            echo "PR_LABELS=$(gh pr view "$PR" --json labels --jq '[.labels[].name]')"
+            echo "CHANGED_FILES=$(gh api --paginate --jq '[.[] | select(.status != "removed") | .filename]' "repos/${{ github.repository }}/pulls/$PR/files" | jq -s -c 'add // []')"
+            echo "DELETED_FILES=$(gh api --paginate --jq '[.[] | select(.status == "removed") | .filename]' "repos/${{ github.repository }}/pulls/$PR/files" | jq -s -c 'add // []')"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate domains/
         run: npm run check
+
+      - name: Check the pull request body
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/template.js
 
       - name: Run the test suite
         run: npm test
 
+      # DNSControl only needs a run when something it reads changed. An entry
+      # under domains/ is exactly that, so a claim pull request never skips it.
+      - name: Decide whether DNSControl has anything to read
+        id: dns
+        if: github.event_name == 'pull_request'
+        run: |
+          if printf '%s' "$CHANGED_FILES$DELETED_FILES" | grep -qE 'domains/|registry/|dnsconfig\.js'; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "no entry, policy or dnsconfig change, so DNSControl has nothing new to read"
+          fi
+
       - name: DNSControl check
+        if: github.event_name == 'pull_request' && steps.dns.outputs.needed == 'true'
         uses: HisokaLabs/dnscontrol-actions@efc133a75954bd7bc4dc6b077a107b7244fccb02 # v4
         with:
           args: check

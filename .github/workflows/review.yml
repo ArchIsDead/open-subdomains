@@ -1,23 +1,27 @@
-name: registry-comment
+name: review
+
+# Labels a pull request by what it touches, and leaves one comment that says
+# what the check wants. It runs on pull_request_target because it needs a write
+# token; that means no code from the fork is ever executed here. The entries are
+# copied in from the pull request, every policy and script file stays at the
+# base commit, so a fork cannot loosen the rule that judges it.
 
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - 'domains/**'
 
 permissions:
   contents: read
+  issues: write
   pull-requests: write
 
 concurrency:
-  group: registry-comment-${{ github.event.pull_request.number }}
+  group: review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  report:
-    name: Explain what the check needs
-    if: github.event.pull_request.head.repo.full_name != github.repository
+  review:
+    name: Explain the verdict
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -28,10 +32,60 @@ jobs:
         with:
           node-version: '24'
 
-      # This job holds a write token, so no code from the fork runs in it. Only
-      # the claim files are copied in, and every policy file stays at the base
-      # commit, which means a fork cannot loosen the rule that judges it.
+      - name: Label by changed files
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const wanted = [];
+            const add = (label, test) => {
+              if (files.some((f) => test(f.filename)) && !wanted.includes(label)) wanted.push(label);
+            };
+
+            add('subdomain', (f) => f.startsWith('domains/'));
+            add('policy', (f) => f.startsWith('registry/'));
+            add('scripts', (f) => f.startsWith('scripts/') || f === 'package.json');
+            add('ci', (f) => f.startsWith('.github/'));
+            add('docs', (f) => f.endsWith('.md'));
+
+            if (!wanted.length) return;
+
+            const existing = new Set(
+              (await github.paginate(github.rest.issues.listLabelsForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100,
+              })).map((l) => l.name)
+            );
+
+            for (const name of wanted) {
+              if (!existing.has(name)) {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name,
+                });
+              }
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: wanted,
+            });
+
+      # Only the claim files are taken from the pull request. registry/, scripts/
+      # and dnsconfig.js stay at the base commit, which is what makes running the
+      # validator here safe with a write token in the job.
       - name: Take the pull request's entries, keep the registry's own rules
+        if: github.event.pull_request.head.repo.full_name != github.repository
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -40,7 +94,6 @@ jobs:
           changed=$(git diff --name-only --no-renames "${BASE_SHA}...prhead" -- domains/ | grep -E '^domains/[^/]+\.json$' || true)
           for file in $changed; do
             if git cat-file -e "prhead:$file" 2>/dev/null; then
-              mkdir -p "$(dirname "$file")"
               git show "prhead:$file" > "$file"
               echo "took $file from the pull request"
             else
@@ -56,11 +109,12 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_AUTHOR_ID: ${{ github.event.pull_request.user.id }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename' > /tmp/changed.txt || true
-          CHANGED_FILES="$(cat /tmp/changed.txt)" node scripts/report.js > /tmp/comment.md && verdict=pass || verdict=fail
+          CHANGED_FILES="$(jq -R -s -c 'split("\n") | map(select(length > 0))' /tmp/changed.txt)" node scripts/report.js > /tmp/comment.md && verdict=pass || verdict=fail
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           cat /tmp/comment.md
 

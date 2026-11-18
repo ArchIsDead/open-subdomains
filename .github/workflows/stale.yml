@@ -15,20 +15,20 @@ concurrency:
 
 jobs:
   stale:
-    name: Mark and close stale PRs
+    name: Mark and close idle pull requests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11
         with:
-          days-before-stale: 14
+          days-before-stale: 21
           days-before-close: 7
           days-before-issue-stale: -1
           days-before-issue-close: -1
           stale-pr-label: 'stale'
           exempt-pr-labels: 'keep'
           stale-pr-message: |
-            This pull request has been idle for two weeks. Push a commit or
+            This pull request has been idle for three weeks. Push a commit or
             comment to keep it open, otherwise it closes in seven days.
           close-pr-message: |
-            Closed for inactivity. The name is free again; open a fresh PR if
-            you still want it.
+            Closed for inactivity. The name is free again; open a fresh pull
+            request if you still want it.

@@ -3,20 +3,19 @@ name: push
 # Applies every managed zone to Cloudflare. Only ever runs on main, and only
 # after the check job has passed on the merge commit.
 #
-# Required secret: CLOUDFLARE_API_TOKEN with Zone.DNS edit permission on all
-# zones listed in registry/zones.json.
+# Required secret: CLOUDFLARE_API_TOKEN with Zone.DNS edit on every zone in
+# registry/zones.json.
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - 'domains/**'
       - 'registry/**'
       - 'dnsconfig.js'
 
-# Never apply two dnscontrol pushes at once. Overlapping runs would race on
-# the Cloudflare API and leave the zones in an undefined state.
+# Never apply two dnscontrol pushes at once. Overlapping runs would race on the
+# Cloudflare API and leave the zones in an undefined state.
 concurrency:
   group: dns-push
   cancel-in-progress: false
@@ -35,7 +34,7 @@ jobs:
           node-version: '24'
 
       # dnsconfig.js reads domains/*.json at runtime, so a push always applies
-      # exactly what is committed; this re-runs the validator as a backstop.
+      # exactly what is committed. The validator re-runs here as a backstop.
       - name: Validate registry
         run: npm run check
 

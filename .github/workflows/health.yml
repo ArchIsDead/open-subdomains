@@ -1,5 +1,10 @@
 name: health
 
+# Two scheduled probes, each opening one issue that closes itself:
+#   zones      does every managed zone still answer with an SOA
+#   collisions two claims serving byte-identical pages, which is how a taken
+#              Vercel proof shows up
+
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -14,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  health:
+  zones:
     name: Probe zones
     runs-on: ubuntu-latest
     steps:
@@ -55,7 +60,7 @@ jobs:
               per_page: 100,
             });
 
-            const existing = issues.find((i) => i.body && i.body.includes(marker));
+            const existing = issues.find((issue) => issue.body && issue.body.includes(marker));
 
             if (existing) {
               await github.rest.issues.update({
@@ -64,15 +69,16 @@ jobs:
                 issue_number: existing.number,
                 body,
               });
-            } else {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body,
-                labels: ['zone-health'],
-              });
+              return;
             }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['zone-health'],
+            });
 
       - name: Close the outage issue
         if: steps.probe.outcome == 'success'
@@ -88,12 +94,119 @@ jobs:
               per_page: 100,
             });
 
-            for (const issue of issues.filter((i) => i.body && i.body.includes(marker))) {
+            for (const issue of issues.filter((item) => item.body && item.body.includes(marker))) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
                 body: 'Zone probe is healthy again; closing.',
+              });
+
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+            }
+
+  collisions:
+    name: Catch two subdomains serving one site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+
+      - name: Probe every entry
+        id: probe
+        continue-on-error: true
+        run: |
+          node scripts/status.js --json --strict > /tmp/status.json
+          exit_code=$?
+          cat /tmp/status.json
+          exit $exit_code
+
+      - name: File the takeover issue
+        if: steps.probe.outcome == 'failure'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- subdomain-guard -->';
+            let report = { collisions: [] };
+            try { report = JSON.parse(fs.readFileSync('/tmp/status.json', 'utf8')); } catch {}
+            const groups = report.collisions || [];
+            if (groups.length === 0) {
+              core.notice('no collisions parsed, leaving issues alone');
+              return;
+            }
+
+            const lines = groups.map((group) =>
+              `- ${group.names.map((name) => '`' + name + '`').join(' and ')} serve byte-identical pages (${group.digest})`
+            );
+            const body = [
+              marker,
+              'At least two registry entries answer with the same page, which means one of them',
+              'is pointed at a deployment it does not own. A `vc-domain-verify` TXT that was pasted',
+              "from another account finishes that account's ownership proof for the name.",
+              '',
+              ...lines,
+              '',
+              `Latest run: ${process.env.RUN_URL}`,
+              '',
+              'This issue closes itself once every entry serves its own page.',
+            ].join('\n');
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const existing = issues.find((issue) => issue.body && issue.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Subdomain guard: one page is being served under two names',
+              body,
+              labels: ['zone-health'],
+            });
+
+      - name: Close the takeover issue
+        if: steps.probe.outcome == 'success'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const marker = '<!-- subdomain-guard -->';
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            for (const issue of issues.filter((item) => item.body && item.body.includes(marker))) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: 'Every entry serves its own page again; closing.',
               });
 
               await github.rest.issues.update({

@@ -1,16 +1,21 @@
+<!--
+Fill out this whole template, or the check will ask for what is missing.
+
+Leave the comments in place: the bot reads the marker inside each one, so a
+checkbox without its marker is invisible to the check.
+-->
+
 # Requirements
 
-<!-- Change each checkbox to [x] to mark it completed. -->
-
-- [ ] I agree to the [Terms of Service](https://is-a.ceo/terms).
-- [ ] This name is for a personal or non-commercial site. I am not selling anything with it, not running a business on it, and not holding it for resale.
-- [ ] `owner` names me: `username` or `id` matches the account I am opening this from, and there is a way for a maintainer to reach me.
-- [ ] My site is reachable and finished at the URL below, not a placeholder or an empty page.
-- [ ] `npm run verify` passes locally.
+- [ ] <!-- TOS --> I agree to the [Terms of Service](https://is-a.ceo/terms).
+- [ ] <!-- OWNER --> `owner` names me: it holds my GitHub `username` or an `email` a maintainer can reach, and `id` is mine if I added one.
+- [ ] <!-- FINISHED --> My site is reachable and finished at the link below, not a placeholder or an empty page.
+- [ ] <!-- NON_COMMERCIAL --> This is a personal or non-commercial site. I am not selling anything with it, and I am not holding it for resale.
+- [ ] <!-- VERIFY --> `npm run verify` passes locally.
 
 # Website Preview
 
-<!-- A link to where the site lives today, not the is-a.ceo name you are applying for.
+<!-- A link to where the site lives today, not the is-a.ceo name you are asking for.
      For example: https://abc.vercel.app or https://abc.github.io -->
 
 <!-- WEBSITE_PREVIEW_START -->
