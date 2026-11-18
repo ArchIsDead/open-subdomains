@@ -19,15 +19,35 @@ A pull request that fails because the agent guessed a field, invented an IP addr
 
 ## What you must not do
 
-Do not invent the numeric id in `owner`. Read it from `https://api.github.com/users/<username>`, or leave `id` out entirely. A wrong id is worse than no id, because CI compares it against the account opening the pull request and refuses a mismatch.
+Do not invent the numeric id in `owner`. Read it from `https://api.github.com/users/<username>`, or leave `id` out entirely. Nothing breaks without it, because `username` is what ties the claim to the account opening the pull request.
 
-An `owner` with only an `email` cannot pass the claimant check for an ordinary author, so include `username` or `id` when the user is filing their own claim.
+An email is not a substitute for a username. An entry with only an `email` passes the check and then waits on a maintainer to confirm it by hand, so include `username` when the user is filing their own claim.
 
 ## State of knowledge you can rely on
 
-- `npm run verify` locally reaches the same verdict as CI, with one exception: the claimant check answers "did the account that opened this pull request write this entry", which needs `PR_AUTHOR` and `PR_AUTHOR_ID`. Local runs without them skip that one rule; CI always sets both.
-- Three tests skip on Windows because a filename cannot contain `*`. They run on Linux, where CI runs. A local run showing `pass 69, skipped 3` is a full pass.
+- `npm run verify` locally reaches the same verdict as CI, with two exceptions: the claimant check answers "did the account that opened this pull request write this entry", which needs `PR_AUTHOR` and `PR_AUTHOR_ID`, and the pull request body check needs `PR_BODY`. Local runs without them skip those two rules; CI always sets both.
+- Four tests skip on Windows because a filename cannot contain `*` and cannot differ from an existing one only by case. They run on Linux, where CI runs. A local run showing `pass 106, skipped 4` is a full pass.
 - The scripts are the authority. Where this file, the README and the documentation disagree about a rule, run the script and trust its exit code.
+
+## Do not ask for a bypass label
+
+The labels `maintainer`, `ci: bypass-scope`, `ci: bypass-owner-check` and `ci: bypass-template-check` exist so a maintainer can take a decision the rules cannot see. They are not a way around a failing check.
+
+If a check fails, fix the entry. If you believe the check is wrong, say why in the pull request and let a maintainer decide. An agent that asks for a label to get past a refusal has misunderstood what the label is for.
+
+## What is a note rather than a refusal
+
+The registry is deliberately loose about anything that still produces a working record. These come back as notes, and a pull request that carries only notes exits 0:
+
+- An owner with an email and no `username`.
+- A private or documentation IP address.
+- A name that reads like a reserved word without being one.
+- An uppercase filename.
+- A repeated record value, which the push drops.
+- A TXT value over 255 characters.
+- More than four entries in one pull request.
+
+If the user sees one of these and wants it gone, fix the entry. Do not tell them the check failed, because it did not.
 
 ## Where the answers are
 
@@ -42,4 +62,4 @@ An `owner` with only an `email` cannot pass the claimant check for an ordinary a
 
 ## When the user only wants to know whether a name is free
 
-Send them to [is-a.ceo/check](https://is-a.ceo/check). It applies the same reserved list and the same folding, so `m3`, `m-e` and `meee` all come back as reserved.
+Send them to [is-a.ceo/check](https://is-a.ceo/check). It applies the same reserved and blocked lists, so a name it refuses is refused by CI too.

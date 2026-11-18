@@ -4,11 +4,10 @@
 
 <p align="center">
    <img alt="Domains" src="https://img.shields.io/github/directory-file-count/HisokaLabs/open-subdomains/domains?color=5c46eb&label=domains&style=for-the-badge">
-   <img alt="Open Pull Requests" src="https://img.shields.io/github/issues-raw/HisokaLabs/open-subdomains?color=5c46eb&label=issues&style=for-the-badge">
-   <img alt="Open Issues" src="https://img.shields.io/github/issues-pr-raw/HisokaLabs/open-subdomains?color=5c46eb&label=pull%20requests&style=for-the-badge">
+   <img alt="Open Issues" src="https://img.shields.io/github/issues-raw/HisokaLabs/open-subdomains?color=5c46eb&label=issues&style=for-the-badge">
+   <img alt="Open Pull Requests" src="https://img.shields.io/github/issues-pr-raw/HisokaLabs/open-subdomains?color=5c46eb&label=pull%20requests&style=for-the-badge">
    <br>
 </p>
-
 
 <h1 align="center">is-a.ceo</h1>
 
@@ -23,7 +22,7 @@
 1. Check the name at [is-a.ceo/check](https://is-a.ceo/check). It reads the same list the validator does.
 2. [Fork](https://github.com/HisokaLabs/open-subdomains/fork) the repository.
 3. Copy `registry/example.json` to `domains/<your-name>.is-a.ceo.json`. The filename is the name, and nothing inside the file repeats it.
-4. Fill in `owner`, and run `npm run verify`.
+4. Fill in `owner`, then run `npm run verify`.
 5. Open the pull request from the account named in `owner`.
 
 Merge it and `push.yml` writes the record. It answers within a minute or two, plus whatever your resolver caches.
@@ -33,7 +32,7 @@ Merge it and `push.yml` writes the record. It answers within a minute or two, pl
   "$schema": "../registry/schema.json",
   "owner": {
     "username": "jane",
-    "id": 1234567
+    "email": "jane@example.net"
   },
   "repo": "github.com/jane/jane.github.io",
   "description": "Portfolio"
@@ -41,6 +40,8 @@ Merge it and `push.yml` writes the record. It answers within a minute or two, pl
 ```
 
 That is the whole file. No `domain`, no `subdomain`, no `records`: leaving `records` out points the name at GitHub Pages, which is what a portfolio or a project page needs. Any other host takes a `records` block, and [Records](https://docs.is-a.ceo/records/) has the shape for each type.
+
+`owner` needs a `username` or an `email`, either one. `id` is optional and only makes the claim survive your next rename.
 
 Keep it personal and non-commercial, and put a finished site behind it before you open the pull request. A parked page or a placeholder is refused. The rest is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
