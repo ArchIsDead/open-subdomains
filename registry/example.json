@@ -2,8 +2,8 @@
   "$schema": "./schema.json",
   "owner": {
     "username": "your-github-username",
-    "id": 1234567,
-    "email": "jane@example.net"
+    "email": "you@example.net",
+    "id": 1234567
   },
   "repo": "github.com/your-github-username/your-repo",
   "description": "One line about what runs here.",

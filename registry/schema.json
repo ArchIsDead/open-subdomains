@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://is-a.ceo/entry.schema.json",
   "title": "Subdomain entry",
-  "description": "One claim per file in domains/. The filename is the name, so the file itself never repeats it: domains/jane.is-a.ceo.json claims jane.is-a.ceo.",
+  "description": "One claim per file in domains/. The filename is the name, so domains/jane.is-a.ceo.json claims jane.is-a.ceo.",
   "type": "object",
   "required": ["owner"],
   "additionalProperties": false,
@@ -13,26 +13,25 @@
     },
     "owner": {
       "type": "object",
-      "minProperties": 1,
+      "description": "Who holds the name. Give at least one of username or email; id is optional.",
+      "required": ["username"],
+      "anyOf": [{ "required": ["username"] }, { "required": ["email"] }],
       "additionalProperties": false,
-      "description": "Who holds the name. None of the three keys is required on its own; at least one has to be there. username or id is what ties the claim to the account opening the pull request, so an entry with only an email can only be filed by a trusted author.",
       "properties": {
         "username": {
           "type": "string",
           "maxLength": 39,
-          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
           "description": "GitHub handle. Ties the claim to the account that opens the pull request."
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 254,
+          "description": "Address a maintainer can reach you at."
         },
         "id": {
           "type": "integer",
           "minimum": 1,
-          "description": "Numeric GitHub account id, from https://api.github.com/users/<username>. Survives a rename, so it is the stronger identity."
-        },
-        "email": {
-          "type": "string",
-          "format": "email",
-          "maxLength": 254,
-          "description": "Address a maintainer can reach you at."
+          "description": "Numeric GitHub account id, from https://api.github.com/users/<username>. Optional; survives a rename."
         }
       }
     },
@@ -54,81 +53,86 @@
     "records": {
       "type": "object",
       "additionalProperties": false,
-      "minProperties": 1,
-      "description": "Omit the key entirely for the GitHub Pages default. An empty object is refused.",
+      "description": "Omit the key entirely for the GitHub Pages default. An empty object is treated the same way.",
       "properties": {
         "A": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
-          "items": { "type": "string", "format": "ipv4" },
-          "description": "Public IPv4 addresses only; private, loopback and documentation ranges are refused."
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "Public IPv4 addresses. A single address may be written as a bare string."
         },
         "AAAA": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
-          "items": { "type": "string", "format": "ipv6" }
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "Public IPv6 addresses. A single address may be written as a bare string."
         },
         "CNAME": {
           "oneOf": [
             { "type": "string" },
             { "type": "array", "minItems": 1, "maxItems": 1, "items": { "type": "string" } }
           ],
-          "description": "One target. Cannot share a name with A, AAAA, MX, NS, SRV or PTR, and cannot sit on the apex."
+          "description": "One target, as a bare string or a one-item array. Cannot share a name with A, AAAA, MX, NS, SRV or PTR, and cannot sit on the apex."
         },
         "TXT": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
-          "items": { "type": "string", "maxLength": 255 }
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "SPF, DMARC and provider verifications. A file named _<label>.<name>.<zone>.json has its TXT mirrored to _<label>.<zone> on publish, which is how a Vercel proof reaches the zone root."
         },
         "MX": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
           "items": {
-            "type": "object",
-            "required": ["priority", "target"],
-            "additionalProperties": false,
-            "properties": {
-              "priority": { "type": "integer", "minimum": 0, "maximum": 65535 },
-              "target": { "type": "string" }
-            }
-          }
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["target"],
+                "additionalProperties": false,
+                "properties": {
+                  "priority": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                  "target": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "description": "A bare hostname is accepted and gets priority 10."
         },
         "NS": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
           "items": { "type": "string" }
         },
         "SRV": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
           "items": {
-            "type": "object",
-            "required": ["priority", "weight", "port", "target"],
-            "additionalProperties": false,
-            "properties": {
-              "priority": { "type": "integer", "minimum": 0, "maximum": 65535 },
-              "weight": { "type": "integer", "minimum": 0, "maximum": 65535 },
-              "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
-              "target": { "type": "string" }
-            }
-          }
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["target"],
+                "additionalProperties": false,
+                "properties": {
+                  "priority": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                  "weight": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                  "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                  "target": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "description": "priority, weight and port default to 0 when left out."
         },
         "CAA": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
           "items": {
             "type": "object",
-            "required": ["flag", "tag", "value"],
+            "required": ["tag", "value"],
             "additionalProperties": false,
             "properties": {
-              "flag": { "type": "integer", "enum": [0, 128] },
+              "flag": { "type": "integer", "enum": [0, 128], "default": 0 },
               "tag": { "type": "string", "enum": ["issue", "issuewild", "iodef"] },
               "value": { "type": "string", "maxLength": 255 }
             }
@@ -136,8 +140,6 @@
         },
         "PTR": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
           "items": { "type": "string" }
         }
       }
