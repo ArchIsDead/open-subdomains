@@ -346,7 +346,7 @@ test("a wildcard passes once the base belongs to the same owner", { skip: skipOn
 test("a wildcard over someone else's name is refused", { skip: skipOnWindows }, () => {
   fails(
     {
-      [claimFile("shop")]: { owner: owner("dikaardnt"), records: { CNAME: "target.example.com" } },
+      [claimFile("shop")]: { owner: owner("dikaardnt", { id: 4242 }), records: { CNAME: "target.example.com" } },
       [claimFile("*.shop")]: entry(),
     },
     /needs "shop"/,
