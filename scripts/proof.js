@@ -9,7 +9,7 @@ const { spawnSync } = require("node:child_process");
 const R = require("./registry.js");
 
 function parseArgs(argv) {
-  const out = { name: "", proof: "", token: "", remove: false, list: false, dryRun: false };
+  const out = { name: "", proof: "", label: "", remove: false, list: false, dryRun: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -20,7 +20,7 @@ function parseArgs(argv) {
     };
     if (arg === "--name") out.name = next();
     else if (arg === "--proof") out.proof = next();
-    else if (arg === "--token") out.token = next();
+    else if (arg === "--label") out.label = next();
     else if (arg === "--remove") out.remove = true;
     else if (arg === "--list") out.list = true;
     else if (arg === "--dry-run") out.dryRun = true;
@@ -34,14 +34,22 @@ function usage() {
   return [
     "Usage:",
     "  node scripts/proof.js --list",
-    '  node scripts/proof.js --name jane --proof "vc-domain-verify=jane.is-a.ceo,abc123"',
-    "  node scripts/proof.js --name jane --token abc123",
-    "  node scripts/proof.js --name jane --remove",
+    '  node scripts/proof.js --name jane --label _acme-challenge --proof "vc-domain-verify=jane.is-a.ceo,abc123"',
+    "  node scripts/proof.js --name jane --label _acme-challenge --remove",
     "",
-    "Writes domains/_vercel.<name>.<zone>.json, the sidecar that carries a Vercel",
-    "ownership TXT. It goes one label deeper because the name itself usually holds",
-    "a CNAME, and DNSControl refuses a CNAME and a TXT on one name.",
+    "Writes domains/<label>.<name>.<zone>.json, the file that carries a hosting",
+    "proof line. It goes one label deeper because the name itself usually holds a",
+    "CNAME, and DNS refuses a CNAME and a TXT on one name.",
+    "",
+    "The proof line has to name the host it was minted for. A line minted for a",
+    "different name is refused, because it would prove ownership of that name.",
   ].join("\n");
+}
+
+function txtValues(body) {
+  const raw = body && body.records && body.records.TXT;
+  if (raw === undefined) return [];
+  return Array.isArray(raw) ? raw : [raw];
 }
 
 function findClaim(label, zones) {
@@ -49,21 +57,27 @@ function findClaim(label, zones) {
     .map(({ filename, full }) => ({ filename, full, name: R.parseClaimFile(filename, zones) }))
     .filter(({ name }) => name && name.subdomain === label);
   if (matches.length === 0) throw new Error(`no entry claims "${label}"`);
-  if (matches.length > 1) throw new Error(`"${label}" is claimed in ${matches.map((m) => m.name.zone).join(" and ")}; pass --name with the label of one zone`);
+  if (matches.length > 1) {
+    throw new Error(`"${label}" is claimed in ${matches.map((m) => m.name.zone).join(" and ")}; name the file you mean`);
+  }
   return matches[0];
 }
 
-function sidecarFile(label, zone) {
-  return path.join(R.DOMAINS_DIR, `_vercel.${label}.${zone}.json`);
+function sidecarFile(prefix, label, zone) {
+  return path.join(R.DOMAINS_DIR, `${prefix}.${label}.${zone}.json`);
 }
 
 function listSidecars(policy) {
   const rows = R.loadClaims()
     .map(({ filename, full }) => ({ filename, full, name: R.parseClaimFile(filename, policy.zones) }))
-    .filter(({ name }) => name && name.subdomain.startsWith("_vercel."));
+    .filter(({ name }) => {
+      if (!name) return false;
+      const labels = name.subdomain.split(".");
+      return labels.length > 1 && labels[0].startsWith("_");
+    });
 
   if (rows.length === 0) {
-    console.log("no Vercel proof sidecars in domains/");
+    console.log("no proof files in domains/");
     return;
   }
 
@@ -75,11 +89,10 @@ function listSidecars(policy) {
       console.log(`${filename}  (does not parse)`);
       continue;
     }
-    const proofs = (body.records && body.records.TXT) || [];
     console.log(filename);
     console.log(`  owner  ${R.ownerLabel(body)}`);
-    for (const proof of proofs) console.log(`  proof  ${proof}`);
-    console.log(`  for    ${name.subdomain.slice("_vercel.".length)}.${name.zone}`);
+    for (const proof of txtValues(body)) console.log(`  proof  ${proof}`);
+    console.log(`  for    ${name.subdomain.split(".").slice(1).join(".")}.${name.zone}`);
   }
   return rows.length;
 }
@@ -108,31 +121,34 @@ function main() {
   }
 
   if (!args.name) throw new Error("--name is required");
+  if (!args.label) throw new Error("--label is required, for example --label _acme-challenge");
+  if (!args.label.startsWith("_")) throw new Error(`--label "${args.label}" has to start with an underscore`);
+
   const claim = findClaim(args.name, policy.zones);
   const zone = claim.name.zone;
-  const file = sidecarFile(args.name, zone);
+  const file = sidecarFile(args.label, args.name, zone);
 
   if (args.remove) {
-    if (!fs.existsSync(file)) throw new Error(`no sidecar at domains/_vercel.${args.name}.${zone}.json`);
+    if (!fs.existsSync(file)) throw new Error(`no proof file at domains/${path.basename(file)}`);
     fs.unlinkSync(file);
-    console.log(`removed domains/_vercel.${args.name}.${zone}.json`);
+    console.log(`removed domains/${path.basename(file)}`);
     return;
   }
 
   let proof = args.proof.trim();
-  if (!proof && args.token) proof = `vc-domain-verify=${args.name}.${zone},${args.token.trim()}`;
-  if (!proof) throw new Error("pass --proof with the whole line, or --token with just the token");
-  if (!R.VERIFY_RE.test(proof)) throw new Error(`"${proof}" is not a Vercel proof line; it looks like vc-domain-verify=<name>,<token>`);
+  if (!proof) throw new Error("pass --proof with the whole line from the provider dashboard");
+  if (!R.VERIFY_RE.test(proof)) throw new Error(`"${proof}" is not a proof line; it looks like vc-domain-verify=<name>,<token>`);
 
   const claimed = R.VERIFY_RE.exec(proof)[1].toLowerCase();
-  if (claimed !== `${args.name}.${zone}`) {
-    throw new Error(`this proof was minted for "${claimed}", so it cannot be used for ${args.name}.${zone}`);
+  const expected = R.fqdnOf(args.name, zone);
+  if (claimed !== expected) {
+    throw new Error(`this line was minted for "${claimed}", so it cannot be used for ${expected}`);
   }
 
   const body = {
     $schema: "../registry/schema.json",
     owner: JSON.parse(fs.readFileSync(claim.full, "utf8")).owner,
-    description: `Vercel ownership proof for ${args.name}.${zone}. Temporary: removed once the project reads Valid Configuration.`,
+    description: `Hosting proof for ${expected}. Temporary: removed once the provider reads the name as verified.`,
     records: { TXT: [proof] },
   };
 
@@ -144,21 +160,21 @@ function main() {
   }
 
   fs.writeFileSync(file, text);
-  console.log(`wrote domains/_vercel.${args.name}.${zone}.json`);
+  console.log(`wrote domains/${path.basename(file)}`);
 
   const result = validate(file);
   if (!result.ok) {
     console.error(result.output.trim());
-    console.error("\nthe sidecar was written but the registry refuses it; fix the entry before committing");
+    console.error("\nthe file was written but the registry refuses it; fix the entry before committing");
     process.exitCode = 1;
     return;
   }
 
   console.log("");
   console.log("Next:");
-  console.log(`  1. Commit domains/_vercel.${args.name}.${zone}.json with the claim and open the pull request.`);
-  console.log(`  2. After the merge, press Verify in Vercel and wait for Valid Configuration.`);
-  console.log(`  3. Remove it again: node scripts/proof.js --name ${args.name} --remove`);
+  console.log(`  1. Commit domains/${path.basename(file)} with the claim and open the pull request.`);
+  console.log("  2. After the merge, press Verify in the provider dashboard and wait for it to pass.");
+  console.log(`  3. Remove it again: node scripts/proof.js --name ${args.name} --label ${args.label} --remove`);
 }
 
 if (require.main === module) {

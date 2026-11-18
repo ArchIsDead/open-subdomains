@@ -31,7 +31,6 @@ function readEntries(policy) {
       }
     })
     .filter(Boolean)
-    .filter((entry) => !R.isAuxiliary(entry.sub))
     .sort((a, b) => R.fqdnOf(a.sub, a.zone).localeCompare(R.fqdnOf(b.sub, b.zone)));
 }
 

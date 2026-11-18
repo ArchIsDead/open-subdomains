@@ -10,12 +10,11 @@ const POLICY_DIR = path.join(ROOT, "registry");
 
 const MAX_LABEL = 63;
 const MAX_NAME = 253;
-const MAX_FILE_BYTES = 64 * 1024;
-const MAX_VALUES = 20;
+const MAX_FILE_BYTES = 128 * 1024;
 
 const RECORD_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA", "PTR"];
 const ENTRY_KEYS = new Set(["$schema", "owner", "repo", "description", "proxied", "records"]);
-const OWNER_KEYS = new Set(["username", "id", "email"]);
+const OWNER_KEYS = new Set(["username", "email", "id"]);
 
 class RegistryError extends Error {}
 
@@ -83,8 +82,8 @@ function trustedBy(policy, author) {
 }
 
 /**
- * The current author, from the environment CI passes in. An id is the identity
- * that survives a rename, so it wins when both are available.
+ * The pull request author, from the environment CI passes in. The id wins when
+ * both are present, because a handle changes and an id does not.
  */
 function currentAuthor(env = process.env) {
   const rawId = String(env.PR_AUTHOR_ID || "").trim();
@@ -97,9 +96,9 @@ function currentAuthor(env = process.env) {
 const LEET = { 0: "o", 1: "i", 3: "e", 4: "a", 5: "s", 6: "g", 7: "t", 8: "b", 9: "g", "@": "a", $: "s", "!": "i", "+": "t" };
 
 /**
- * Reduces a label to the word it dresses up as, so m3, meee and m_e all land on
- * "me". Without this the reserved list only catches the spelling someone
- * happened to write down.
+ * Folds a label the way the reserved list reads it: m3, meee and m_e all land on
+ * "me". Only ever a warning, never a refusal, because the exact spelling is what
+ * the registry operates.
  */
 function fold(label) {
   return String(label)
@@ -111,12 +110,17 @@ function fold(label) {
 
 function reservedWord(label, policy) {
   const plain = String(label).toLowerCase();
-  if (policy.reserved.has(plain)) return plain;
+  return policy.reserved.has(plain) ? plain : null;
+}
+
+function reservedLookalike(label, policy) {
   const folded = fold(label);
+  if (folded === String(label).toLowerCase()) return null;
   return policy.reserved.has(folded) ? folded : null;
 }
 
-const LABEL_RE = /^_?[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+const LABEL_RE = /^_?[a-z0-9]([a-z0-9_-]*[a-z0-9])?$/;
+const HOST_LABEL_RE = /^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?$/;
 
 function validLabel(label) {
   return typeof label === "string" && label.length > 0 && label.length <= MAX_LABEL && LABEL_RE.test(label);
@@ -124,15 +128,12 @@ function validLabel(label) {
 
 function validSubdomain(subdomain) {
   if (subdomain === "@" || subdomain === "*") return true;
-  const rest = subdomain.startsWith("*.") ? subdomain.slice(2) : subdomain;
+  const rest = String(subdomain).startsWith("*.") ? subdomain.slice(2) : String(subdomain);
   if (rest.length === 0 || rest.length > MAX_NAME) return false;
   return rest.split(".").every(validLabel);
 }
 
-/**
- * Reads the claim name out of the filename, which is the only place it is
- * written. That removes the whole class of "file says X, name is Y" failures.
- */
+/** Reads the claim name out of the filename, which is the only place it is written. */
 function parseClaimFile(filename, zones) {
   if (!filename.endsWith(".json")) return null;
   const stem = filename.slice(0, -".json".length);
@@ -158,7 +159,6 @@ function isZoneWide(subdomain) {
   return subdomain === "@" || subdomain === "*" || (subdomain.startsWith("_") && !subdomain.includes("."));
 }
 
-/** A record under someone else's name, e.g. _vercel.jane or _acme-challenge.app. */
 function isAuxiliary(subdomain) {
   return subdomain.includes(".") && subdomain.split(".")[0].startsWith("_");
 }
@@ -171,9 +171,9 @@ function validIPv4(value) {
 function validHostname(value) {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
-  const host = trimmed.endsWith(".") ? trimmed.slice(0, -1) : trimmed;
+  const host = (trimmed.endsWith(".") ? trimmed.slice(0, -1) : trimmed).toLowerCase();
   if (host.length === 0 || host.length > MAX_NAME) return false;
-  return host.split(".").every((label) => label.length <= MAX_LABEL && /^_?[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(label));
+  return host.split(".").every((label) => label.length <= MAX_LABEL && HOST_LABEL_RE.test(label));
 }
 
 function validRepo(value) {
@@ -200,6 +200,12 @@ function validEmail(value) {
   if (!/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) return false;
   if (local.startsWith(".") || local.endsWith(".") || local.includes("..")) return false;
   return validTarget(value.slice(at + 1));
+}
+
+const HANDLE_RE = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
+
+function validHandle(value) {
+  return typeof value === "string" && HANDLE_RE.test(value.trim());
 }
 
 const V4_BLOCKED = [
@@ -264,6 +270,10 @@ function embeddedIPv4(hi, lo) {
   return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
 }
 
+function validIPv6(value) {
+  return expandIPv6(value) !== null;
+}
+
 function isPublicIPv6(value) {
   const expanded = expandIPv6(value);
   if (!expanded) return false;
@@ -285,7 +295,7 @@ function isPublicIPv6(value) {
 
 const LOCAL_SUFFIXES = new Set([
   "localhost", "local", "home.arpa", "internal", "intranet", "lan",
-  "localdomain", "test", "example", "invalid", "ts.net",
+  "localdomain", "test", "example", "invalid",
 ]);
 
 function validTarget(value) {
@@ -326,11 +336,15 @@ function ownerUsername(entry) {
   return owner.username.trim().toLowerCase();
 }
 
+function ownerEmail(entry) {
+  const owner = ownerOf(entry);
+  if (!owner || typeof owner.email !== "string") return "";
+  return owner.email.trim().toLowerCase();
+}
+
 /**
- * A stable identity for whoever holds an entry, used for the anti-takeover
- * rules. Any one of the three keys is enough to own a name, so the key falls
- * back through id, then username, then email. Returning "" for an entry with
- * none of them keeps two strangers from matching each other on an empty string.
+ * Identity behind the anti-takeover rules. "" for an entry with no id, handle or
+ * address: two strangers must never match each other on an empty string.
  */
 function ownerKey(entry) {
   const owner = ownerOf(entry);
@@ -349,8 +363,8 @@ function ownerLabel(entry) {
   const owner = ownerOf(entry);
   if (!owner) return "-";
   if (typeof owner.username === "string" && owner.username.trim()) return owner.username.trim();
-  if (Number.isInteger(owner.id)) return `id:${owner.id}`;
   if (typeof owner.email === "string" && owner.email.trim()) return owner.email.trim();
+  if (Number.isInteger(owner.id)) return `id:${owner.id}`;
   return "-";
 }
 
@@ -361,7 +375,6 @@ module.exports = {
   MAX_LABEL,
   MAX_NAME,
   MAX_FILE_BYTES,
-  MAX_VALUES,
   RECORD_TYPES,
   ENTRY_KEYS,
   OWNER_KEYS,
@@ -376,8 +389,10 @@ module.exports = {
   currentAuthor,
   fold,
   reservedWord,
+  reservedLookalike,
   validLabel,
   validSubdomain,
+  validHandle,
   parseClaimFile,
   claimFile,
   isApex,
@@ -387,11 +402,14 @@ module.exports = {
   validHostname,
   validRepo,
   validEmail,
+  validIPv4,
+  validIPv6,
   isPublicIPv4,
   isPublicIPv6,
   validTarget,
   ownerOf,
   ownerUsername,
+  ownerEmail,
   ownerKey,
   ownerLabel,
 };

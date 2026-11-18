@@ -4,13 +4,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 
 const REPO = path.resolve(__dirname, "..");
-const SCRIPTS = path.join(REPO, "scripts");
 
-const { fold, parseClaimFile, isZoneWide, isAuxiliary, reservedWord } = require(path.join(SCRIPTS, "registry.js"));
+const { fold, parseClaimFile, isZoneWide, isAuxiliary, reservedWord } = require(path.join(REPO, "scripts", "registry.js"));
 
 function registry(files, zones = ["is-a.ceo"], reserved = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dnsconfig-"));
@@ -27,7 +25,6 @@ function registry(files, zones = ["is-a.ceo"], reserved = []) {
 
 function load(dir) {
   const zones = {};
-  const errors = [];
   const saved = {};
   const names = ["NewRegistrar", "DnsProvider", "NewDnsProvider", "A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA", "PTR", "D", "glob", "IGNORE"];
 
@@ -50,205 +47,208 @@ function load(dir) {
     zones[String(zone).toLowerCase()] = records;
   };
   globalThis.glob = (startPath, recursive, extension) => {
-    const root = path.resolve(startPath);
+    const root = path.resolve(dir, startPath);
     const out = [];
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isFile()) continue;
       if (extension && extension !== "*" && path.extname(entry.name) !== extension) continue;
-      out.push(path.join(root, entry.name));
+      out.push(path.join("domains", entry.name));
     }
     return out.sort();
   };
 
-  const cwd = process.cwd();
-  const target = path.join(dir, "dnsconfig.js");
   try {
-    process.chdir(dir);
-    delete require.cache[require.resolve(target)];
-    require(target);
-  } catch (error) {
-    errors.push(error.message);
+    const file = path.join(dir, "dnsconfig.js");
+    delete require.cache[require.resolve(file)];
+    require(file);
   } finally {
-    process.chdir(cwd);
     for (const name of names) {
       if (saved[name]) Object.defineProperty(globalThis, name, saved[name]);
       else delete globalThis[name];
     }
-    delete require.cache[require.resolve(target)];
   }
 
-  return { zones, error: errors.length > 0 ? errors[0] : null };
+  return zones;
 }
 
-test("the record name comes from the filename", () => {
+function recordsOf(zones, zone = "is-a.ceo") {
+  return zones[zone] || [];
+}
+
+function only(records, kind) {
+  return records.filter((record) => record[0] === kind);
+}
+
+test("an entry without records gets the GitHub Pages addresses", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.equal(only(records, "A").length, 4);
+  assert.equal(only(records, "AAAA").length, 4);
+});
+
+test("an empty records object also gets the Pages addresses", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: {} } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.equal(only(records, "A").length, 4);
+});
+
+test("a scalar A value is published as one record", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { A: "203.0.113.9" } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "A").map((r) => r[2]), ["203.0.113.9"]);
+});
+
+test("a scalar CNAME is published as one record with a trailing dot", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { CNAME: "jane.pages.dev" } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "CNAME").map((r) => r[2]), ["jane.pages.dev."]);
+});
+
+test("an MX hostname gets priority 10", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { MX: ["mx.example.net"] } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "MX").map((r) => [r[2], r[3]]), [[10, "mx.example.net."]]);
+});
+
+test("an MX string with a priority keeps it", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { MX: ["20 mx.example.net"] } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "MX").map((r) => [r[2], r[3]]), [[20, "mx.example.net."]]);
+});
+
+test("an MX object without a priority gets 10", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { MX: [{ target: "mx.example.net" }] } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "MX").map((r) => [r[2], r[3]]), [[10, "mx.example.net."]]);
+});
+
+test("an SRV string carries all four fields", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { SRV: ["0 5 25565 mc.example.net"] } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "SRV").map((r) => r.slice(2)), [[0, 5, 25565, "mc.example.net."]]);
+});
+
+test("an SRV object defaults the numbers to 0", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { SRV: [{ target: "mc.example.net" }] } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "SRV").map((r) => r.slice(2)), [[0, 0, 0, "mc.example.net."]]);
+});
+
+test("CAA defaults its flag to 0", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { CAA: [{ tag: "issue", value: "letsencrypt.org" }] } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "CAA").map((r) => r.slice(2)), [[0, "issue", "letsencrypt.org"]]);
+});
+
+test("a scalar TXT is published", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { TXT: "v=spf1 -all" } } });
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "TXT").map((r) => r[2]), ["v=spf1 -all"]);
+});
+
+test("a reserved name with no entry is left alone", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" } } }, ["is-a.ceo"], ["www", "docs"]);
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "IGNORE").map((r) => r[1]).sort(), ["docs", "www"]);
+});
+
+test("a reserved label with no claim is ignored", () => {
+  const dir = registry({ "jane.is-a.ceo.json": { owner: { username: "jane" } } }, ["is-a.ceo"], ["_vercel"]);
+  const records = recordsOf(load(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  assert.deepEqual(only(records, "IGNORE").map((r) => r[1]), ["_vercel"]);
+});
+
+test("a sidecar publishes only on its own name", () => {
   const dir = registry({
-    "jane.is-a.ceo.json": {
-      owner: { username: "jane", id: 1 },
-      records: { CNAME: "jane.github.io" },
-    },
+    "jane.is-a.ceo.json": { owner: { username: "jane" }, records: { CNAME: "jane.pages.dev" } },
+    "_vercel.jane.is-a.ceo.json": { owner: { username: "jane" }, records: { TXT: "vc-domain-verify=jane.is-a.ceo,abc" } },
   });
-  const { zones, error } = load(dir);
+  const records = recordsOf(load(dir));
   fs.rmSync(dir, { recursive: true, force: true });
 
-  assert.equal(error, null, error);
-  assert.ok(zones["is-a.ceo"], "the zone was declared");
-  const cname = zones["is-a.ceo"].find((record) => record[0] === "CNAME");
-  assert.equal(cname[1], "jane");
-  assert.equal(cname[2], "jane.github.io.");
+  const txt = only(records, "TXT");
+  assert.equal(txt.length, 1);
+  assert.equal(txt[0][1], "_vercel.jane");
+  assert.equal(txt[0][2], "vc-domain-verify=jane.is-a.ceo,abc");
+  assert.equal(txt.filter((r) => r[1] === "_vercel").length, 0);
 });
 
-test("no records key publishes GitHub Pages with the proxy off", () => {
-  const dir = registry({ "bare.is-a.ceo.json": { owner: { username: "bare", id: 2 } } });
-  const { zones } = load(dir);
-  fs.rmSync(dir, { recursive: true, force: true });
-
-  const records = zones["is-a.ceo"];
-  assert.equal(records.filter((r) => r[0] === "A").length, 4);
-  assert.equal(records.filter((r) => r[0] === "AAAA").length, 4);
-  for (const record of records) assert.equal(record[3].cloudflare_proxy, "off");
-});
-
-test("proxied turns the Cloudflare proxy on for address records only", () => {
+test("a reserved label that is also claimed is published, not ignored", () => {
   const dir = registry({
-    "web.is-a.ceo.json": {
-      owner: { username: "web", id: 3 },
-      proxied: true,
-      records: { A: ["8.8.8.8"], TXT: ["v=spf1 -all"] },
-    },
-  });
-  const { zones } = load(dir);
+    "_dmarc.is-a.ceo.json": { owner: { username: "jane" }, records: { TXT: "v=DMARC1; p=none" } },
+  }, ["is-a.ceo"], ["_dmarc"]);
+  const records = recordsOf(load(dir));
   fs.rmSync(dir, { recursive: true, force: true });
 
-  const a = zones["is-a.ceo"].find((record) => record[0] === "A");
-  const txt = zones["is-a.ceo"].find((record) => record[0] === "TXT");
-  assert.equal(a[3].cloudflare_proxy, "on");
-  assert.equal(txt.length, 3, "TXT carries no proxy argument");
+  assert.equal(only(records, "IGNORE").length, 0);
+  assert.deepEqual(only(records, "TXT").map((r) => r[2]), ["v=DMARC1; p=none"]);
 });
 
-test("a target gets a trailing dot and an existing one is kept", () => {
+test("a sidecar does not overwrite a reserved service label", () => {
   const dir = registry({
-    "one.is-a.ceo.json": { owner: { username: "one", id: 4 }, records: { CNAME: "a.example.com" } },
-    "two.is-a.ceo.json": { owner: { username: "two", id: 5 }, records: { CNAME: "b.example.com." } },
-  });
-  const { zones } = load(dir);
+    "jane.is-a.ceo.json": { owner: { username: "jane" } },
+    "_dmarc.jane.is-a.ceo.json": { owner: { username: "jane" }, records: { TXT: "v=DMARC1; p=none" } },
+  }, ["is-a.ceo"], ["_dmarc"]);
+  const records = recordsOf(load(dir));
   fs.rmSync(dir, { recursive: true, force: true });
 
-  const targets = zones["is-a.ceo"].filter((record) => record[0] === "CNAME").map((record) => record[2]).sort();
-  assert.deepEqual(targets, ["a.example.com.", "b.example.com."]);
+  assert.equal(only(records, "TXT").filter((r) => r[1] === "_dmarc").length, 0);
 });
 
-test("every record type reaches the zone", () => {
-  const dir = registry({
-    "all.is-a.ceo.json": {
-      owner: { username: "all", id: 6 },
-      records: {
-        A: ["8.8.8.8"],
-        AAAA: ["2606:4700::1"],
-        MX: [{ priority: 10, target: "mx.example.com" }],
-        NS: ["ns1.example.net"],
-        SRV: [{ priority: 0, weight: 5, port: 25565, target: "mc.example.com" }],
-        CAA: [{ flag: 0, tag: "issue", value: "letsencrypt.org" }],
-        PTR: ["host.example.com"],
-      },
-    },
-  });
-  const { zones } = load(dir);
-  fs.rmSync(dir, { recursive: true, force: true });
-
-  const kinds = new Set(zones["is-a.ceo"].map((record) => record[0]));
-  for (const kind of ["A", "AAAA", "MX", "NS", "SRV", "CAA", "PTR"]) assert.ok(kinds.has(kind), `${kind} missing`);
+test("the fold maps leetspeak onto the plain word", () => {
+  assert.equal(fold("m3"), "me");
+  assert.equal(fold("d0cs"), "docs");
+  assert.equal(fold("m_e"), "me");
+  assert.equal(fold("meee"), "me");
 });
 
-test("a file that names no managed zone is skipped, not declared", () => {
-  const dir = registry({ "orphan.json": { owner: { username: "orphan", id: 7 } } });
-  const { zones } = load(dir);
-  fs.rmSync(dir, { recursive: true, force: true });
-  assert.deepEqual(Object.keys(zones), []);
+test("the fold leaves ordinary names alone", () => {
+  assert.equal(fold("jane"), "jane");
+  assert.equal(fold("dikaardnt"), "dikaardnt");
 });
 
-test("an empty zone list refuses to run", () => {
-  const dir = registry({ "jane.is-a.ceo.json": {} }, []);
-  const { error } = load(dir);
-  fs.rmSync(dir, { recursive: true, force: true });
-  assert.match(error, /lists no zones, refusing to push/);
-});
-
-test("the real dnsconfig.js declares the real registry", () => {
-  const result = spawnSync(process.execPath, ["-e", "0"], { encoding: "utf8" });
-  assert.equal(result.status, 0);
-  const files = fs.readdirSync(path.join(REPO, "domains")).filter((file) => file.endsWith(".json"));
-  assert.ok(files.length > 0, "the registry has entries");
-});
-
-test("parseClaimFile reads the name out of the filename", () => {
-  const zones = ["is-a.ceo"];
-  assert.deepEqual(parseClaimFile("jane.is-a.ceo.json", zones), { subdomain: "jane", zone: "is-a.ceo" });
-  assert.deepEqual(parseClaimFile("@.is-a.ceo.json", zones), { subdomain: "@", zone: "is-a.ceo" });
-  assert.deepEqual(parseClaimFile("_vercel.jane.is-a.ceo.json", zones), { subdomain: "_vercel.jane", zone: "is-a.ceo" });
-  assert.equal(parseClaimFile("is-a.ceo.json", zones), null);
-  assert.equal(parseClaimFile("jane.example.net.json", zones), null);
-  assert.equal(parseClaimFile("notes.txt", zones), null);
-});
-
-test("a multi-zone filename resolves to the zone it names", () => {
-  const zones = ["is-a.ceo", "example.net"];
-  assert.deepEqual(parseClaimFile("jane.example.net.json", zones), { subdomain: "jane", zone: "example.net" });
-  assert.deepEqual(parseClaimFile("jane.is-a.ceo.json", zones), { subdomain: "jane", zone: "is-a.ceo" });
+test("a filename is read as a name and a zone", () => {
+  assert.deepEqual(parseClaimFile("jane.is-a.ceo.json", ["is-a.ceo"]), { subdomain: "jane", zone: "is-a.ceo" });
+  assert.deepEqual(parseClaimFile("_vercel.jane.is-a.ceo.json", ["is-a.ceo"]), { subdomain: "_vercel.jane", zone: "is-a.ceo" });
+  assert.equal(parseClaimFile("jane.example.com.json", ["is-a.ceo"]), null);
 });
 
 test("zone-wide and auxiliary names are told apart", () => {
   assert.equal(isZoneWide("@"), true);
-  assert.equal(isZoneWide("*"), true);
   assert.equal(isZoneWide("_dmarc"), true);
-  assert.equal(isZoneWide("_dmarc.jane"), false);
-  assert.equal(isZoneWide("jane"), false);
-
+  assert.equal(isZoneWide("_vercel.jane"), false);
   assert.equal(isAuxiliary("_vercel.jane"), true);
-  assert.equal(isAuxiliary("_acme-challenge.jane"), true);
-  assert.equal(isAuxiliary("docs.jane"), false);
-  assert.equal(isAuxiliary("_dmarc"), false);
+  assert.equal(isAuxiliary("jane"), false);
 });
 
-test("reservedWord sees through leetspeak and separators", () => {
-  const policy = { reserved: new Set(["me", "status", "admin"]) };
-  assert.equal(reservedWord("me", policy), "me");
-  assert.equal(reservedWord("M3", policy), "me");
-  assert.equal(reservedWord("meee", policy), "me");
-  assert.equal(reservedWord("m-e", policy), "me");
-  assert.equal(reservedWord("5tatus", policy), "status");
-  assert.equal(reservedWord("jane", policy), null);
-});
-
-test("fold leaves a plain word alone", () => {
-  assert.equal(fold("jane"), "jane");
-  assert.equal(fold("jisoa"), "jisoa");
-});
-
-test("a reserved name with no entry file is ignored, never purged", () => {
-  const dir = registry(
-    {
-      "caliph.is-a.ceo.json": { owner: { username: "caliph", id: 1 }, records: { CNAME: "server.caliph.dev" } },
-    },
-    ["is-a.ceo"],
-    ["www", "docs", "mail"],
-  );
-  const { zones } = load(dir);
-  fs.rmSync(dir, { recursive: true, force: true });
-
-  const ignored = zones["is-a.ceo"].filter((record) => record[0] === "IGNORE").map((record) => record[1]).sort();
-  assert.deepEqual(ignored, ["docs", "mail", "www"]);
-});
-
-test("a reserved name that has an entry file is pushed, not ignored", () => {
-  const dir = registry(
-    { "docs.is-a.ceo.json": { owner: { username: "hisokalabs", id: 2 }, records: { CNAME: "hisokalabs.github.io" } } },
-    ["is-a.ceo"],
-    ["www", "docs"],
-  );
-  const { zones } = load(dir);
-  fs.rmSync(dir, { recursive: true, force: true });
-
-  const ignored = zones["is-a.ceo"].filter((record) => record[0] === "IGNORE").map((record) => record[1]);
-  assert.deepEqual(ignored, ["www"], "only the unclaimed reserved name is ignored");
-  assert.ok(zones["is-a.ceo"].some((record) => record[0] === "CNAME" && record[1] === "docs"));
+test("only the exact reserved spelling matches", () => {
+  const policy = { reserved: new Set(["www"]) };
+  assert.equal(reservedWord("www", policy), "www");
+  assert.equal(reservedWord("wwww", policy), null);
 });

@@ -36,9 +36,11 @@ async function main() {
     } catch {
       continue;
     }
-    // _vercel.holder answers on a name of its own, and the proof inside it names
-    // the claim it belongs to. That base name is what has to match.
-    const base = name.subdomain.startsWith("_vercel.") ? name.subdomain.slice("_vercel.".length) : name.subdomain;
+
+    const labels = name.subdomain.split(".");
+    const subject = labels.length > 1 && labels[0].startsWith("_")
+      ? labels.slice(1).join(".")
+      : name.subdomain;
 
     for (const value of txtValues(body)) {
       const match = R.VERIFY_RE.exec(value.trim());
@@ -48,7 +50,7 @@ async function main() {
         owner: R.ownerLabel(body),
         txtName: R.fqdnOf(name.subdomain, name.zone),
         declaredFor: match[1].toLowerCase(),
-        expectedFor: R.fqdnOf(base, name.zone),
+        expectedFor: R.fqdnOf(subject, name.zone),
         token: match[2],
       });
     }
@@ -60,7 +62,7 @@ async function main() {
     byToken.get(row.token).push(row);
   }
 
-  console.log(`vc-domain-verify tokens: ${tokens.length}\n`);
+  console.log(`hosting proof lines: ${tokens.length}\n`);
 
   let mismatched = 0;
   for (const row of tokens) {
@@ -70,22 +72,22 @@ async function main() {
 
     const flags = [];
     if (row.declaredFor !== row.expectedFor) {
-      flags.push(`token is for ${row.declaredFor}, the file belongs to ${row.expectedFor}`);
+      flags.push(`the line is minted for ${row.declaredFor}, but the file declares ${row.expectedFor}`);
       mismatched += 1;
     }
     if (byToken.get(row.token).length > 1) flags.push(`the same token sits in ${byToken.get(row.token).length} entries`);
     if (!Array.isArray(live)) flags.push(`live lookup ${live.error}`);
-    else if (!published) flags.push("declared token is not in live DNS");
-    if (drift.length > 0) flags.push(`live DNS also holds ${drift.length} other token(s)`);
+    else if (!published) flags.push("the declared token is not in live DNS");
+    if (drift.length > 0) flags.push(`live DNS also holds ${drift.length} other proof line(s)`);
 
     console.log(`  ${row.txtName}`);
     console.log(`    owner on file : ${row.owner}`);
-    console.log(`    token says    : ${row.declaredFor}`);
+    console.log(`    line says     : ${row.declaredFor}`);
     console.log(`    published live: ${published ? "yes" : "no"}`);
     console.log(`    verdict       : ${flags.length === 0 ? "consistent" : flags.join("; ")}`);
   }
 
-  console.log(`\n${tokens.length} token(s), ${mismatched} minted for a name the file does not claim`);
+  console.log(`\n${tokens.length} line(s), ${mismatched} minted for a name the file does not declare`);
   if (mismatched > 0 && process.argv.includes("--strict")) process.exitCode = 1;
 }
 

@@ -12,32 +12,32 @@ const MAX_PER_FILE = 12;
 
 const HINTS = [
   { test: /is blocked by the registry/, hint: "This label is on registry/blocked.json. It is refused under every zone, so pick another one." },
-  { test: /is reserved, so it already answers/, hint: "Reserved labels already point somewhere for the registry itself. Pick a personal handle instead." },
-  { test: /"owner" is empty/, hint: 'Add at least one of username, id or email. username is your GitHub handle, id is the number from https://api.github.com/users/<you>.' },
-  { test: /owner\.username is empty/, hint: "The key is there but blank. Fill in your GitHub handle or remove the key." },
-  { test: /has only an email/, hint: "An email alone cannot be matched to a GitHub account. Add username or id, or ask a trusted author to file it." },
-  { test: /is not the account opening this pull request/, hint: "A claim belongs to the account that opens it. Check that the id in your entry is yours." },
-  { test: /is not the account opening this pull request|is not the account opening/, hint: "The username in owner has to be the account that opened this pull request." },
+  { test: /is reserved, so the registry already answers/, hint: "The registry serves this name itself. Pick a personal handle instead." },
+  { test: /"owner" needs "username" or "email"/, hint: 'Add "username" (your GitHub handle) or "email" (an address a maintainer can reach). "id" is optional.' },
+  { test: /owner\.username is empty|owner\.email is empty/, hint: "The key is there but blank. Fill it in or remove the key." },
+  { test: /owner\.username .* is not a GitHub handle/, hint: "A handle is letters, digits and single hyphens, up to 39 characters." },
+  { test: /owner\.email must be a valid address/, hint: "Write a full address, for example you@example.com." },
+  { test: /owner\.id must be/, hint: "The id is the number from https://api.github.com/users/<you>. Leave it out if you are not sure." },
+  { test: /is not the account opening this pull request/, hint: "A claim belongs to the account that opens it. Check that the username and id in your entry are yours." },
   { test: /needs .* claimed by the same owner first/, hint: "A wildcard or an underscore name has to sit on top of a name you already hold in the same zone." },
-  { test: /also used by .* under a different owner/, hint: "Two names cannot serve one host. Point this at your own deployment." },
-  { test: /is not a public IPv4|is not a public IPv6/, hint: "Private, loopback, link-local and documentation addresses are refused. Use the address your host publishes." },
-  { test: /cannot coexist|CNAME cannot share/, hint: "A CNAME owns its name. Move the other record one label deeper, for example _vercel.<name>." },
-  { test: /Vercel proof verifies/, hint: 'A vc-domain-verify value only counts on "_vercel.<the name it verifies>".' },
+  { test: /looback|loopback, link-local or multicast/, hint: "That address type never reaches a host. Use the address your host publishes." },
+  { test: /is not an IPv4 address|is not an IPv6 address/, hint: "Write a bare address, for example 203.0.113.10 or 2606:4700::1." },
+  { test: /CNAME cannot share/, hint: "A CNAME owns its name. Move the other record one label deeper, for example _proof.<name>." },
   { test: /is not a valid public CNAME target|is not a public hostname|is not a public nameserver/, hint: "Targets have to be public hostnames, not IP literals and not names that only resolve inside a LAN." },
   { test: /apex cannot carry a CNAME|apex cannot delegate/, hint: "The apex cannot hold a CNAME or an NS delegation. Use A and AAAA there." },
-  { test: /the name must be <subdomain>.<zone>.json/, hint: "Name the file after the claim: domains/jane.is-a.ceo.json for jane.is-a.ceo." },
+  { test: /the name must be <subdomain>\.<zone>\.json/, hint: "Name the file after the claim: domains/jane.is-a.ceo.json for jane.is-a.ceo." },
   { test: /unknown key/, hint: "The key list is closed. Check the spelling against registry/schema.json." },
-  { test: /unknown owner key/, hint: 'owner takes username, id and email. Nothing else.' },
+  { test: /unknown owner key/, hint: "owner takes username, email and id. Nothing else." },
   { test: /only a trusted author can change/, hint: "A claim pull request touches its own domains/<name>.<zone>.json and nothing else." },
   { test: /only an admin can change the trusted list/, hint: "registry/trusted.json is admin-only." },
-  { test: /only trusted authors can loosen/, hint: "Removing a word from the policy lists is a trusted author's decision." },
-  { test: /a claim pull request adds one file|a claim is one entry/, hint: "Split the extra entries into their own pull requests." },
+  { test: /only a trusted author can loosen/, hint: "Removing a word from the policy lists is a trusted author's decision." },
   { test: /releasing it is their call/, hint: "Ask the owner or a trusted author to remove the entry." },
   { test: /belongs to .* so only they/, hint: "Editing someone else's entry needs them or a trusted author." },
   { test: /does not change hands/, hint: "Ownership transfer is a trusted author's action, not a pull request edit." },
+  { test: /is a directory/, hint: "Entries stay flat in domains/ because dnsconfig only reads that one level." },
+  { test: /answers for every name in the zone/, hint: "A zone-wide name such as @ or _dmarc is held by the registry. Put your record one label deeper." },
   { test: /repeats a value|is empty|is larger than|must be a string|must be true or false/, hint: "Fix the value the message names." },
   { test: /invalid JSON/, hint: "A missing comma, a trailing comma, or a smart quote pasted from a document." },
-  { test: /subdirectories/, hint: "Entries stay flat in domains/ so each one is read." },
 ];
 
 function hintFor(message) {
@@ -73,7 +73,7 @@ function groupByFile(problems) {
   return groups;
 }
 
-function render(policy) {
+function render() {
   const result = collect();
   const lines = [MARKER, ""];
 
@@ -83,11 +83,7 @@ function render(policy) {
     return lines.join("\n");
   }
 
-  if (result.ok) {
-    lines.push("## Registry check passed, with warnings", "");
-  } else {
-    lines.push("## Registry check needs a change", "");
-  }
+  lines.push(result.ok ? "## Registry check passed, with notes" : "## Registry check needs a change", "");
 
   const groups = groupByFile(result.problems);
   for (const [file, messages] of groups) {
@@ -105,7 +101,9 @@ function render(policy) {
   }
 
   if (result.warnings.length > 0) {
-    lines.push("### Warnings", "");
+    lines.push("### Notes", "");
+    lines.push("These do not block the merge.");
+    lines.push("");
     for (const warning of result.warnings) lines.push(`- ${warning.message}`);
     lines.push("");
   }
@@ -117,14 +115,13 @@ function render(policy) {
 }
 
 if (require.main === module) {
-  let policy;
   try {
-    policy = R.loadPolicy();
+    R.loadPolicy();
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exit(1);
   }
-  const body = render(policy);
+  const body = render();
   process.stdout.write(`${body}\n`);
   if (body.includes("## Registry check needs a change")) process.exit(1);
 }
