@@ -49,10 +49,16 @@ function makeRepo(options = {}) {
 }
 
 function run(dir, env) {
+  // CI exports PR_* and friends for the validator; the suite must not inherit
+  // them or the bypass labels leak into every spawned template check.
+  const cleanEnv = { ...process.env };
+  for (const key of ["PR_BODY", "PR_LABELS", "PR_AUTHOR", "PR_AUTHOR_ID", "CHANGED_FILES", "DELETED_FILES", "GITHUB_BASE_REF"]) {
+    delete cleanEnv[key];
+  }
   const result = spawnSync(process.execPath, [path.join(dir, "scripts", "template.js")], {
     cwd: dir,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: { ...cleanEnv, ...env },
   });
   return { code: result.status, out: `${result.stdout}${result.stderr}` };
 }
