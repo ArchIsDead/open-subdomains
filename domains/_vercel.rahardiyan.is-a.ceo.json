@@ -1,0 +1,14 @@
+{
+  "$schema": "../registry/schema.json",
+  "owner": {
+    "username": "ryhardiyan",
+    "id": 177131540,
+    "email": "ryhardev@gmail.com"
+  },
+  "description": "Make A Wish",
+  "records": {
+    "TXT": [
+      "vc-domain-verify=rahardiyan.is-a.ceo,35c8537a884248dd5b8c"
+    ]
+  }
+}
