@@ -1,0 +1,12 @@
+{
+  "$schema": "../registry/schema.json",
+  "owner": {
+    "username": "shuu-arch",
+  },
+  "description": "Portfolio",
+  "records": {
+    "TXT": [
+      "vc-domain-verify=ryan.is-a.ceo,ed0b53170dd8e641f7e0"
+    ]
+  }
+}
