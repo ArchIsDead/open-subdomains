@@ -1,0 +1,11 @@
+{
+  "$schema": "../registry/schema.json",
+  "owner": {
+    "username": "zannbjir"
+  },
+  "repo": "github.com/zannbjir/open-subdomains",
+  "description": "Subdomain for Razan's personal projects and portfolio.",
+  "records": {
+    "CNAME": "razan-5re.pages.dev"
+  }
+}
