@@ -1,10 +1,10 @@
 {
-  "domain": "is-a.ceo",
-  "subdomain": "ryan",
-  "owner": "shuu-arch",
-  "repo": "",
+  "$schema": "../registry/schema.json",
+  "owner": {
+    "username": "shuu-arch"
+  },
   "description": "portfolio.",
   "records": {
-    "CNAME": "2caa94989851ecf1.vercel-dns-017.com.."
-    }
+    "CNAME": "2caa94989851ecf1.vercel-dns-017.com."
+  }
 }
