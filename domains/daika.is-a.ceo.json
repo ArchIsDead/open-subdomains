@@ -1,0 +1,11 @@
+{
+  "$schema": "../registry/schema.json",
+  "owner": {
+    "username": "tankotan",
+    "id": 268500030,
+    "email": "tankietlam99@gmail.com"
+  },
+  "records": {
+    "CNAME": "tankotan.github.io"
+  }
+}
