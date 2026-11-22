@@ -1,0 +1,15 @@
+{
+  "$schema": "../registry/schema.json",
+  "owner": {
+    "username": "ArchIsDead",
+    "id": 222967537
+  },
+  "repo": "https://github.com/ArchIsDead/open-subdomains/",
+  "description": "idk.",
+  "proxied": false,
+  "records": {
+    "CNAME": [
+      "4ndra-new-portofolio.pages.dev"
+    ]
+  }
+}
